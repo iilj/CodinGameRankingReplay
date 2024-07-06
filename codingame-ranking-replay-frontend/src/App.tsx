@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  BrowserRouter, Route, Routes, Navigate
+  Route, Routes, Navigate, HashRouter
 } from 'react-router-dom';
 import { Container } from 'reactstrap';
 import { NavigationBar } from './components/NavigationBar';
@@ -10,7 +10,7 @@ const App: React.FC = () => {
   return (
     <div className="App">
       <NavigationBar />
-      <BrowserRouter>
+      <HashRouter>
         <Container style={{ width: '100%', maxWidth: '90%', marginTop: '80px' }}>
           <Routes>
             <Route
@@ -25,7 +25,7 @@ const App: React.FC = () => {
             <Route path="/chart/" element={<Navigate replace to="/" />} />
           </Routes>
         </Container>
-      </BrowserRouter>
+      </HashRouter>
       <footer
         className="footer"
         style={{
