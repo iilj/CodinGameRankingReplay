@@ -1,0 +1,4 @@
+chart-cache_*.json
+lastcrawl.json
+leaderboard_crawler/json/challenges/*/*.*
+json/challenges/*/*.json
