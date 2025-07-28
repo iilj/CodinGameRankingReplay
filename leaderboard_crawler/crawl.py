@@ -1,14 +1,18 @@
 # API access with Python - Contest tools and workflow
 # https://www.codingame.com/playgrounds/53705/contest-tools-and-workflow/api-access-with-python
 
+import argparse
 import json
-from typing import List, Final
-import requests
-from datetime import datetime, timedelta
-from time import sleep
-import pathlib
-import traceback
 import subprocess
+from datetime import datetime, timedelta, timezone
+from logging import Logger
+from pathlib import Path
+from time import sleep
+from typing import Final
+
+import requests
+
+from logger import LogLevel, get_logger, set_level
 
 # game_id = 453253378
 # r = requests.post(
@@ -19,42 +23,45 @@ import subprocess
 # print(replay)
 
 
-def room() -> None:
-    r = requests.post(
-        "https://www.codingame.com/services/Leaderboards/getFilteredArenaDivisionRoomLeaderboard",
-        json=[
-            {"divisionId": 458, "roomIndex": 0},
-            None,
-            None,
-            {"active": False, "column": "", "filter": ""},
-        ],
-    )
-    replay = r.json()
-    # print(replay)
-    with open(f"{458}.json", "w+") as f:
-        f.write(json.dumps(replay))
+# def room() -> None:
+#     r = requests.post(
+#         "https://www.codingame.com/services/Leaderboards/getFilteredArenaDivisionRoomLeaderboard",
+#         json=[
+#             {"divisionId": 458, "roomIndex": 0},
+#             None,
+#             None,
+#             {"active": False, "column": "", "filter": ""},
+#         ],
+#     )
+#     replay = r.json()
+#     # print(replay)
+#     with open(f"{458}.json", "w+") as f:
+#         f.write(json.dumps(replay))
 
 
-def puzzle(
-    d: datetime, challenge: str = "fall-challenge-2020", filter: str = "bronze"
-) -> None:
-    r = requests.post(
-        "https://www.codingame.com/services/Leaderboards/getFilteredPuzzleLeaderboard",
-        # json=[challenge, "", "global", {"active": True, "column": "LEAGUE", "filter": filter}]
-        json=[challenge, "", "global", {"active": False, "column": "", "filter": ""}],
-    )
-    print(r)
-    replay = r.json()
-    # print(replay)
-    datestr: str = d.strftime("%Y%m%d_%H%M%S")
-    with open(f"json/{challenge}_{datestr}_{filter}.json", "w+") as f:
-        f.write(json.dumps(replay))
+# def puzzle(
+#     d: datetime, challenge: str = "fall-challenge-2020", filter_str: str = "bronze"
+# ) -> None:
+#     r = requests.post(
+#         "https://www.codingame.com/services/Leaderboards/getFilteredPuzzleLeaderboard",
+#         # json=[challenge, "", "global", {"active": True, "column": "LEAGUE", "filter": filter}]
+#         json=[challenge, "", "global", {"active": False, "column": "", "filter": ""}],
+#         timeout=(60.0, 120.0),
+#     )
+#     print(r)
+#     replay = r.json()
+#     # print(replay)
+#     datestr: str = d.strftime("%Y%m%d_%H%M%S")
+#     with open(f"json/{challenge}_{datestr}_{filter_str}.json", "w+") as f:
+#         f.write(json.dumps(replay))
+
+logger: Logger = get_logger()
 
 
 def get_challenge(
     d: datetime,
     challenge: str = "fall-challenge-2020",
-    filter: str = "",
+    filter_str: str = "",
     filter_column: str = "LEAGUE",
 ) -> None:
     """指定コンテストの指定リーグの順位表（上位1000人）を取得して保存する
@@ -71,29 +78,31 @@ def get_challenge(
             challenge,
             "",
             "global",
-            {"active": True, "column": filter_column, "filter": filter},
+            {"active": True, "column": filter_column, "filter": filter_str},
         ],
+        timeout=(60.0, 120.0),
     )
-    print(f"  -> status_code = {r.status_code}")
+    logger.info("  -> status_code = %d", r.status_code)
     replay = r.json()
     # print(replay)
     datestr: str = d.strftime("%Y%m%d_%H%M%S")
-    fn: str = f"json/challenges/{challenge}/{datestr}_{filter}.json"
+    fn: str = f"json/challenges/{challenge}/{datestr}_{filter_str}.json"
 
     # 保存先ディレクトリが存在しないときは再帰的に作成する
-    path = pathlib.Path(fn)
+    path = Path(fn)
     directory = path.parent
     if not directory.exists():
         directory.mkdir(parents=True)
 
     # ファイルに書き出す
-    with open(fn, "w+") as f:
+    with path.open("w+") as f:
         f.write(json.dumps(replay))
-    print(f"  -> saved: {fn}")
+    logger.info("  -> saved: %s", fn)
 
 
-DT_FILENAME: Final[str] = "lastcrawl.json"
+DT_FILENAME: Final[Path] = Path("lastcrawl.json")
 DT_FORMAT: Final[str] = "%Y-%m-%d %H:%M:%S.%f"
+tz_jst_name = timezone(timedelta(hours=9), name="JST")
 
 
 def crawl(challenge: str = "spring-challenge-2022", secs: int = 600) -> None:
@@ -104,54 +113,66 @@ def crawl(challenge: str = "spring-challenge-2022", secs: int = 600) -> None:
         secs (int, optional): 待機秒数. Defaults to 600.
     """
     # 最終クロール時刻を格納する list を初期化（json にして保存するために list にする）
-    data: List[str]
-    if pathlib.Path(DT_FILENAME).exists():
-        with open(DT_FILENAME, mode="rt", encoding="utf-8") as f:
+    data: list[str]
+    if DT_FILENAME.exists():
+        with DT_FILENAME.open(mode="rt", encoding="utf-8") as f:
             data = json.load(f)
     else:
         data = ["2000-01-11 00:00:00.000000"]
-    lastd: datetime = datetime.strptime(data[0], DT_FORMAT)
+    lastd: datetime = datetime.strptime(data[0], DT_FORMAT).astimezone(tz=tz_jst_name)
 
     # 最後のクロールから secs 以上の時間が経っていなかったら sleep する
     dt_nxt_crawl_start: datetime = lastd + timedelta(seconds=secs)
-    td_sleep: timedelta = dt_nxt_crawl_start - datetime.now()
+    td_sleep: timedelta = dt_nxt_crawl_start - datetime.now(tz=tz_jst_name)
     if td_sleep > timedelta(0):
         td_sleep_secs: float = td_sleep.total_seconds()
-        print(f"  -> sleep {td_sleep_secs} secs (Next: {dt_nxt_crawl_start}) ...")
+        logger.info("  -> sleep %f secs (Next: %s) ...", td_sleep_secs, str(dt_nxt_crawl_start))
         sleep(td_sleep_secs)
 
-    filters = ["wood2", "wood1", "bronze", "silver", "gold", "legend"]
+    filters = ["wood4", "wood3", "wood2", "wood1", "bronze", "silver", "gold", "legend"]
     # filters = ['wood2', 'wood1']
     while True:
-        dt_crawl_start = datetime.now()
-        print(f"[{dt_crawl_start}]")
+        dt_crawl_start = datetime.now(tz=tz_jst_name)
+        logger.info("[%s]", str(dt_crawl_start))
 
         try:
             # リーグごとの結果を取得して保存する
-            for i, filter in enumerate(filters):
-                print(f"  -> filter[{i}/{len(filters)}]: {filter}")
-                get_challenge(dt_crawl_start, challenge, filter, "LEAGUE")
+            for i, filter_str in enumerate(filters):
+                logger.info("  -> filter[%d/%d]: %s", i, len(filters), filter_str)
+                get_challenge(dt_crawl_start, challenge, filter_str, "LEAGUE")
                 # break
                 # if i != len(filters) - 1:
                 sleep(5)
             get_challenge(dt_crawl_start, challenge, "JP", "COUNTRY")
             # クロール時刻を保存する
-            with open(DT_FILENAME, "w+") as f:
+            with DT_FILENAME.open("w+") as f:
                 data = [dt_crawl_start.strftime(DT_FORMAT)]
                 f.write(json.dumps(data))
-        except Exception as ex:
-            t = "".join(traceback.TracebackException.from_exception(ex).format())
-            print(t)
-            cmd = "play /usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"
-            subprocess.run(cmd, shell=True)
+        except Exception:
+            # t = "".join(traceback.TracebackException.from_exception(ex).format())
+            # print(t)
+            logger.exception("Caught exception!")
+            subprocess.run(
+                ["/usr/bin/play", "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"],
+                check=True,
+            )
         dt_nxt_crawl_start = dt_crawl_start + timedelta(seconds=secs)
-        td_sleep = dt_nxt_crawl_start - datetime.now()
-        print(
-            f"  -> sleep {td_sleep.total_seconds()} secs (Next: {dt_nxt_crawl_start}) ..."
-        )
+        td_sleep = dt_nxt_crawl_start - datetime.now(tz=tz_jst_name)
+        logger.info("  -> sleep %f secs (Next: %s) ...", td_sleep.total_seconds(), str(dt_nxt_crawl_start))
         # exit()
         sleep(td_sleep.total_seconds())  # 10 mins
 
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description="crawler")
+    parser.add_argument("challenge", type=str, help="summer-challenge-2024-olymbits など")
+    parser.add_argument("--interval", type=int, default=600, help="クロール間隔（秒単位）")
+
+    args = parser.parse_args()
+
+    crawl(args.challenge, args.interval)
+
+
 if __name__ == "__main__":
-    crawl("summer-challenge-2024-olymbits", 600)
+    set_level(LogLevel.DEBUG)
+    main()

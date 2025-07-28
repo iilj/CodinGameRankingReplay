@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Set
-from typing_extensions import Final
+from typing import Final, Any
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
@@ -18,7 +18,7 @@ def main(challenge: str = "spring-challenge-2022", pseudo: str = "iilj") -> None
         datetimestr: str = filepath.name[:15]
         league: str = filepath.name[16:-5]
         # print(datetimestr, league)
-        if not (datetimestr in datetime2paths):
+        if datetimestr not in datetime2paths:
             datetime2paths[datetimestr] = {}
         datetime2paths[datetimestr][league] = filepath
     # print(list(datetime2paths.keys()))
@@ -54,19 +54,19 @@ def main(challenge: str = "spring-challenge-2022", pseudo: str = "iilj") -> None
         if datetimestr in cache_dx:
             continue
         found: bool = False
-        found_user = None
+        found_user: dict[str, Any] | None = None
         for key in keys:
             jsonpath: Path = paathdic[key]
             assert jsonpath is not None
             with open(jsonpath, "r") as f:
                 json_dict = json.load(f)
-            if not "users" in json_dict:
+            if "users" not in json_dict:
                 continue
-            users: list = json_dict["users"]
+            users: list[dict[str, Any]] = json_dict["users"]
             if len(users) == 0:
                 continue
             for user in users:
-                if not ("pseudo" in user):
+                if "pseudo" not in user:
                     continue
                 if user["pseudo"] == pseudo:
                     found = True
@@ -76,11 +76,14 @@ def main(challenge: str = "spring-challenge-2022", pseudo: str = "iilj") -> None
                 break
         if found:
             x.append(datetime.strptime(datetimestr, DATE_FORMAT))
-            y.append(found_user["rank"])
+            assert found_user is not None
+            rank = found_user["rank"]
+            assert isinstance(rank, int)
+            y.append(rank)
         else:
             x_discarded.append(datetime.strptime(datetimestr, DATE_FORMAT))
     # save cache
-    data = {
+    data: dict[str, Any] = {
         "x": [dt.strftime(DATE_FORMAT) for dt in x],
         "y": y,
         "x_discarded": [dt.strftime(DATE_FORMAT) for dt in x_discarded],

@@ -2,7 +2,7 @@ import json
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
-from typing import Final
+from typing import Final, Any
 
 from tqdm import tqdm
 
@@ -22,7 +22,7 @@ def main() -> None:
     #     dst_parent_path.mkdir()
     assert dst_parent_path.exists() and dst_parent_path.is_dir()
 
-    challenges_list = []
+    challenges_list: list[dict[str, str | list[int]]] = []
 
     for challenge in challenges:
         # if (dst_parent_path / f"ranges/{challenge.name}.json").exists():
@@ -37,7 +37,7 @@ def main() -> None:
         for jsonpath in jsons:
             datetimestr: str = jsonpath.name[:15]
             league: str = jsonpath.name[16:-5]
-            if not (datetimestr in datetime2paths):
+            if datetimestr not in datetime2paths:
                 datetime2paths[datetimestr] = {}
             datetime2paths[datetimestr][league] = jsonpath
 
@@ -45,9 +45,9 @@ def main() -> None:
         unixtime_max: int = -1
 
         # user => (datetime, rank)
-        user2history: dict[str, list[dict[str, int]]] = {}
+        user2history: dict[str, list[dict[str, int | str]]] = {}
         # league => [(datetime, rank_min, rank_max)]
-        league2ranges: dict[str, list[dict[str, int | list[int]]]] = {}
+        league2ranges: dict[str, list[dict[str, int | list[float]]]] = {}
         for league in LEAGUES[:6]:
             league2ranges[league] = []
         # JSON 読み込み
@@ -63,10 +63,10 @@ def main() -> None:
             unixtime_min = min(unixtime_min, unixtime)
             unixtime_max = max(unixtime_max, unixtime)
 
-            processed_users = set() # 処理済みユーザ
+            processed_users: set[str] = set() # 処理済みユーザ
             # 上位リーグから順に探す
             for idx, league in enumerate(LEAGUES):
-                if not league in league2filepath:
+                if league not in league2filepath:
                     continue
                 jsonpath: Path = league2filepath[league]
                 assert jsonpath is not None
@@ -76,27 +76,27 @@ def main() -> None:
                     except json.decoder.JSONDecodeError as e:
                         print(f"  -> Failed to load {jsonpath}: {e}")
                         raise e
-                if not "users" in json_dict:
+                if "users" not in json_dict:
                     continue
-                users: list = json_dict["users"]
+                users: list[dict[str, Any]] = json_dict["users"]
                 if len(users) == 0:
                     continue
                 rank_min: int = 1000000000
                 rank_max: int = -1
                 for user in users:
-                    if not ("pseudo" in user):
+                    if "pseudo" not in user:
                         continue
                     pseudo: str = user["pseudo"]
                     rank: int = user["rank"]
                     if pseudo in processed_users:
                         continue
-                    value: dict[str, int] = {
+                    value: dict[str, int | str] = {
                         "unixtime": unixtime,
                         "rank": rank,
                         "localRank": user["localRank"],
                         "league": league
                     }
-                    if not pseudo in user2history:
+                    if pseudo not in user2history:
                         user2history[pseudo] = [value]
                     else:
                         user2history[pseudo].append(value)
@@ -104,7 +104,7 @@ def main() -> None:
                     rank_min = min(rank_min, rank)
                     rank_max = max(rank_max, rank)
                 if rank_max != -1 and league != "JP":
-                    range_value = {
+                    range_value: dict[str, int | list[float]] = {
                         "unixtime": unixtime,
                         "range": [rank_min - 0.5, rank_max + 0.5]
                     }
@@ -120,7 +120,9 @@ def main() -> None:
                         assert isinstance(unixtimeval, int)
                         assert isinstance(rangeval, list)
                         if unixtimeval == unixtime:
-                            rangeval[1] = max(rangeval[1], league2ranges[league][-1]["range"][0])
+                            league_range = league2ranges[league][-1]["range"]
+                            assert isinstance(league_range, list)
+                            rangeval[1] = max(rangeval[1], league_range[0])
 
         # 誰も "legend" に居ないのなら，クロールを途中で打ち切ったと見る
         if len(league2ranges["legend"]) == 0:
@@ -145,7 +147,7 @@ def main() -> None:
         
         # チャレンジの各リーグの順位範囲履歴
         with (challenges_dst_path / f"{challenge.name}.json").open(mode="w", encoding="utf-8") as f:
-            obj = {
+            obj: dict[str, Any] = {
                 "unixtime_range": [unixtime_min, unixtime_max],
                 "league2ranges": league2ranges,
                 "users": list(user2history.keys())
